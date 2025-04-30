@@ -1,0 +1,8 @@
+PyQt5
+pdfplumber
+pytesseract
+Pillow
+requests
+python-dotenv
+docling
+fitz
