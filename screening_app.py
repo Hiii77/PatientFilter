@@ -1,14 +1,18 @@
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, 
-                           QTextEdit, QFileDialog, QLabel, QHBoxLayout, QSplitter, QDialog, QListWidget, QScrollArea)
+                           QTextEdit, QFileDialog, QLabel, QHBoxLayout, QSplitter, QDialog, QListWidget, QScrollArea, QStackedLayout, QTextBrowser)
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QImage, QPixmap
 from pdf_viewer import PdfViewerDialog
 from ocr_utils import extract_text_from_pdf
 from api_utils import extract_criteria_from_text, analyze_patient_criteria, organize_patient_case
+import sys
+import fitz
 
 class ScreeningApp(QWidget):
     def __init__(self):
         super().__init__()
         self.criteria_text = ""
+        self.current_pdf_path = None
         self.initUI()
     
     def initUI(self):
@@ -47,11 +51,53 @@ class ScreeningApp(QWidget):
         right_widget = QWidget()
         right_layout = QVBoxLayout()
         
+        # 创建标题和切换按钮的水平布局
+        title_layout = QHBoxLayout()
         self.case_label = QLabel("患者病例")
-        right_layout.addWidget(self.case_label)
+        title_layout.addWidget(self.case_label)
         
-        self.case_text_edit = QTextEdit()
-        right_layout.addWidget(self.case_text_edit)
+        # 添加切换显示模式按钮
+        self.toggle_view_button = QPushButton("")
+        self.toggle_view_button.setFixedSize(12, 12)  # 设置按钮大小为小圆点
+        self.toggle_view_button.setStyleSheet("""
+            QPushButton {
+                background-color: #FFA500;  /* 橘黄色 */
+                border-radius: 6px;  /* 圆角半径等于高度的一半 */
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #FF8C00;  /* 鼠标悬停时颜色变深 */
+            }
+        """)
+        self.toggle_view_button.clicked.connect(self.toggle_view_mode)
+        title_layout.addWidget(self.toggle_view_button)
+        title_layout.addStretch()  # 添加弹性空间，使按钮靠左
+        
+        right_layout.addLayout(title_layout)
+        
+        # 创建堆叠布局用于切换显示模式
+        self.case_stack = QStackedLayout()
+        
+        # 文本编辑模式
+        self.case_text_edit = QTextBrowser()
+        self.case_text_edit.setOpenExternalLinks(True)  # 允许打开外部链接
+        self.case_text_edit.setOpenLinks(True)  # 允许打开链接
+        self.case_stack.addWidget(self.case_text_edit)
+        
+        # PDF显示模式
+        pdf_widget = QWidget()
+        pdf_layout = QVBoxLayout()
+        self.pdf_scroll = QScrollArea()
+        self.pdf_scroll.setWidgetResizable(True)
+        self.pdf_content = QWidget()
+        self.pdf_layout = QVBoxLayout()
+        self.pdf_content.setLayout(self.pdf_layout)
+        self.pdf_scroll.setWidget(self.pdf_content)
+        pdf_layout.addWidget(self.pdf_scroll)
+        pdf_widget.setLayout(pdf_layout)
+        self.case_stack.addWidget(pdf_widget)
+        
+        right_layout.addLayout(self.case_stack)
         
         # 创建按钮区域的水平布局
         buttons_layout = QHBoxLayout()
@@ -63,7 +109,7 @@ class ScreeningApp(QWidget):
         # 添加整理病例按钮
         self.organize_case_button = QPushButton("整理病例")
         self.organize_case_button.clicked.connect(self.organize_case)
-        self.organize_case_button.setStyleSheet("background-color: #a3e4ff;")  # 设置蓝色背景
+        self.organize_case_button.setStyleSheet("background-color: #a3e4ff;")
         buttons_layout.addWidget(self.organize_case_button)
         
         right_layout.addLayout(buttons_layout)
@@ -148,11 +194,34 @@ class ScreeningApp(QWidget):
         """选择并加载病例 PDF"""
         file_path, _ = QFileDialog.getOpenFileName(self, "选择病例 PDF", "", "PDF Files (*.pdf)")
         if file_path:
+            self.current_pdf_path = file_path
+            
+            # 清除现有的PDF内容
+            for i in reversed(range(self.pdf_layout.count())): 
+                self.pdf_layout.itemAt(i).widget().setParent(None)
+            
+            # 加载PDF并显示
+            try:
+                doc = fitz.open(file_path)
+                for i in range(len(doc)):
+                    page = doc.load_page(i)
+                    pix = page.get_pixmap()
+                    image = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
+                    label = QLabel()
+                    label.setPixmap(QPixmap.fromImage(image))
+                    self.pdf_layout.addWidget(label)
+                doc.close()
+            except Exception as e:
+                self.status_label.setText(f"加载PDF失败：{str(e)}")
+                self.status_label.setStyleSheet("color: red;")
+                return
+            
             # 右上角患者病例转换全部页面
             result = extract_text_from_pdf(file_path)
             
             if result['success']:
-                self.case_text_edit.setPlainText(result['text'])
+                # 设置Markdown内容
+                self.case_text_edit.setMarkdown(result['text'])
                 
                 # 设置状态提示
                 if result['is_filtered']:
@@ -165,12 +234,23 @@ class ScreeningApp(QWidget):
                 self.status_label.setText(result['message'])
                 self.status_label.setStyleSheet("color: red;")
 
+    def toggle_view_mode(self):
+        """切换显示模式"""
+        if self.case_stack.currentIndex() == 0:  # 当前是文本模式
+            if self.current_pdf_path:
+                self.case_stack.setCurrentIndex(1)  # 切换到PDF模式
+            else:
+                self.status_label.setText("请先加载PDF文件！")
+                self.status_label.setStyleSheet("color: red;")
+        else:  # 当前是PDF模式
+            self.case_stack.setCurrentIndex(0)  # 切换到文本模式
+
     def classify_case(self):
         """分析患者是否符合入排标准"""
         # 获取左侧的入排标准
         criteria = self.criteria_text_edit.toPlainText()
         # 获取右侧的患者病例
-        patient_case = self.case_text_edit.toPlainText()
+        patient_case = self.case_text_edit.toMarkdown()  # 获取Markdown格式的文本
         
         if not criteria:
             self.status_label.setText("请先加载或输入入排标准！")
@@ -206,6 +286,13 @@ class ScreeningApp(QWidget):
         # 清除右侧面板内容
         self.case_text_edit.clear()
         self.result_text_edit.clear()
+        self.current_pdf_path = None
+        
+        # 清除PDF显示
+        for i in reversed(range(self.pdf_layout.count())): 
+            self.pdf_layout.itemAt(i).widget().setParent(None)
+        
+        self.case_stack.setCurrentIndex(0)  # 切换到文本模式
         
         # 重置状态标签
         self.status_label.setText("已重置所有内容")
@@ -217,7 +304,7 @@ class ScreeningApp(QWidget):
     def organize_case(self):
         """整理患者病例"""
         # 获取右侧的患者病例
-        patient_case = self.case_text_edit.toPlainText()
+        patient_case = self.case_text_edit.toMarkdown()  # 获取Markdown格式的文本
         
         if not patient_case:
             self.status_label.setText("请先加载或输入患者病例！")
@@ -232,10 +319,16 @@ class ScreeningApp(QWidget):
         success, result = organize_patient_case(patient_case)
         
         if success:
-            # 将整理后的内容放回病例文本框
-            self.case_text_edit.setPlainText(result)
+            # 将整理后的内容放回病例文本框，使用Markdown格式
+            self.case_text_edit.setMarkdown(result)
             self.status_label.setText("病例整理成功！")
             self.status_label.setStyleSheet("color: green;")
         else:
             self.status_label.setText(f"病例整理失败：{result}")
             self.status_label.setStyleSheet("color: red;")
+            
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    ex = ScreeningApp()
+    ex.show()
+    sys.exit(app.exec_())

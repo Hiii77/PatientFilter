@@ -7,5 +7,4 @@ load_dotenv()
 # API配置
 API_KEY = os.getenv("API_KEY")
 API_URL = os.getenv("API_URL")
-ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH")
 

@@ -79,7 +79,7 @@ def analyze_patient_criteria(criteria, patient_case):
 """
             }],
             "temperature": 0.7,
-            "max_tokens": 2000
+            "max_tokens": 5000
         }
         
         print(f"正在发送请求到: {full_api_url}")

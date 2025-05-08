@@ -1,10 +1,9 @@
 from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
-from config import ARTIFACTS_PATH
-
 def setup_ocr_pipeline():
-    pipeline_options = PdfPipelineOptions(artifacts_path=ARTIFACTS_PATH)
+    # pipeline_options = PdfPipelineOptions(artifacts_path=ARTIFACTS_PATH)
+    pipeline_options = PdfPipelineOptions(enable_remote_services=True)
     pipeline_options.do_ocr = True
     pipeline_options.generate_page_images = True
     pipeline_options.do_table_structure = True
